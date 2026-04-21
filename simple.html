@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>气步枪打靶数据分析 - 简单版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .upload-area { border: 2px dashed #4b5563; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; }
+        .upload-area:hover { border-color: #2563eb; }
+        .result-card { background: white; border-radius: 8px; padding: 20px; margin: 10px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-center mb-8 text-gray-800">🎯 气步枪打靶数据分析</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- 左侧：上传区域 -->
+            <div>
+                <div class="result-card">
+                    <h2 class="text-xl font-semibold mb-4">📷 上传射击截图</h2>
+                    <div class="upload-area" id="uploadArea">
+                        <div class="text-5xl mb-4">📁</div>
+                        <p class="text-gray-600">点击或拖拽图片到这里</p>
+                        <p class="text-gray-400 text-sm mt-2">支持 PNG、JPG、JPEG</p>
+                    </div>
+                    <input type="file" id="fileInput" accept="image/png,image/jpeg,image/jpg" style="display:none;">
+                    <div id="previewArea" class="mt-4 hidden">
+                        <img id="previewImg" class="max-w-full rounded" alt="预览">
+                    </div>
+                    <button id="analyzeBtn" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed hidden">
+                        开始 AI 分析
+                    </button>
+                </div>
+                
+                <div class="result-card">
+                    <h2 class="text-xl font-semibold mb-4">⚙️ 配置</h2>
+                    <p class="text-gray-600 text-sm">
+                        这是简单版本。完整版需要：<br>
+                        1. 安装 Node.js 依赖<br>
+                        2. 配置 AI API Key
+                    </p>
+                </div>
+            </div>
+            
+            <!-- 右侧：结果展示 -->
+            <div>
+                <div class="result-card">
+                    <h2 class="text-xl font-semibold mb-4">📊 分析结果</h2>
+                    <div id="resultArea">
+                        <div class="text-center text-gray-500 py-8">
+                            <div class="text-5xl mb-4">📊</div>
+                            <p>上传图片后点击"开始 AI 分析"</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-8 bg-white rounded shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">💡 使用说明</h2>
+            <ol class="list-decimal list-inside space-y-2 text-gray-600">
+                <li>在你的 PowerShell 终端中运行：<code class="bg-gray-200 px-2 py-1 rounded">cd d:\ai.analysis</code></li>
+                <li>然后运行：<code class="bg-gray-200 px-2 py-1 rounded">npm install</code></li>
+                <li>安装完成后运行：<code class="bg-gray-200 px-2 py-1 rounded">npm run dev</code></li>
+                <li>打开浏览器访问 http://localhost:3000</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // 简单的文件上传逻辑
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const previewArea = document.getElementById('previewArea');
+        const previewImg = document.getElementById('previewImg');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultArea = document.getElementById('resultArea');
+        
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#2563eb';
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#4b5563';
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#4b5563';
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('请选择图片文件！');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImg.src = e.target.result;
+                previewArea.classList.remove('hidden');
+                analyzeBtn.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        analyzeBtn.addEventListener('click', () => {
+            resultArea.innerHTML = `
+                <div class="text-center py-8">
+                    <div class="animate-spin text-5xl mb-4">⏳</div>
+                    <p>正在分析中...</p>
+                    <p class="text-gray-400 text-sm mt-2">请先在终端运行 npm install 安装完整版本</p>
+                </div>
+            `;
+        });
+    </script>
+</body>
+</html>
