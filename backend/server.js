@@ -27,8 +27,32 @@ app.use((req, res, next) => {
 });
 
 const screenshotsDir = path.join(__dirname, 'screenshots');
+const recordsFile = path.join(__dirname, 'records.json');
 if (!fs.existsSync(screenshotsDir)) {
   fs.mkdirSync(screenshotsDir, { recursive: true });
+}
+
+// 读取记录列表
+function readRecords() {
+  try {
+    if (fs.existsSync(recordsFile)) {
+      const data = fs.readFileSync(recordsFile, 'utf-8');
+      return JSON.parse(data);
+    }
+    return [];
+  } catch (error) {
+    console.error('读取记录失败:', error);
+    return [];
+  }
+}
+
+// 保存记录列表
+function saveRecords(records) {
+  try {
+    fs.writeFileSync(recordsFile, JSON.stringify(records, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('保存记录失败:', error);
+  }
 }
 
 const storage = multer.diskStorage({
@@ -234,13 +258,105 @@ app.post('/upload', upload.single('image'), async (req, res) => {
     // 图片预处理
     const processedPath = await preprocessImage(req.file.path);
     
+    // 保存记录
+    const records = readRecords();
+    const newRecord = {
+      id: Date.now().toString(),
+      filename: path.basename(processedPath),
+      originalFilename: path.basename(req.file.path),
+      uploadedAt: new Date().toISOString(),
+      url: `/screenshots/${path.basename(processedPath)}`
+    };
+    records.unshift(newRecord);
+    saveRecords(records);
+    
     res.json({
       success: true,
-      filename: path.basename(processedPath)
+      filename: path.basename(processedPath),
+      record: newRecord
     });
   } catch (error) {
     console.error('上传失败:', error);
     res.status(500).json({ error: error.message || '上传失败' });
+  }
+});
+
+// 获取记录列表
+app.get('/api/records', (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 20;
+    
+    const records = readRecords();
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedRecords = records.slice(startIndex, endIndex);
+    
+    res.json({
+      success: true,
+      records: paginatedRecords,
+      total: records.length,
+      page,
+      pageSize
+    });
+  } catch (error) {
+    console.error('获取记录列表失败:', error);
+    res.status(500).json({ error: '获取记录列表失败' });
+  }
+});
+
+// 获取单条记录详情
+app.get('/api/records/:id', (req, res) => {
+  try {
+    const records = readRecords();
+    const record = records.find(r => r.id === req.params.id);
+    
+    if (!record) {
+      return res.status(404).json({ error: '记录不存在' });
+    }
+    
+    res.json({
+      success: true,
+      record
+    });
+  } catch (error) {
+    console.error('获取记录详情失败:', error);
+    res.status(500).json({ error: '获取记录详情失败' });
+  }
+});
+
+// 删除记录
+app.delete('/api/records/:id', (req, res) => {
+  try {
+    const records = readRecords();
+    const recordIndex = records.findIndex(r => r.id === req.params.id);
+    
+    if (recordIndex === -1) {
+      return res.status(404).json({ error: '记录不存在' });
+    }
+    
+    const record = records[recordIndex];
+    
+    // 删除文件
+    try {
+      const originalPath = path.join(screenshotsDir, record.originalFilename);
+      const processedPath = path.join(screenshotsDir, record.filename);
+      if (fs.existsSync(originalPath)) fs.unlinkSync(originalPath);
+      if (fs.existsSync(processedPath)) fs.unlinkSync(processedPath);
+    } catch (error) {
+      console.error('删除文件失败:', error);
+    }
+    
+    records.splice(recordIndex, 1);
+    saveRecords(records);
+    
+    res.json({
+      success: true,
+      message: '删除成功'
+    });
+  } catch (error) {
+    console.error('删除记录失败:', error);
+    res.status(500).json({ error: '删除记录失败' });
   }
 });
 

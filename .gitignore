@@ -25,6 +25,7 @@ backend/screenshots/*.jpg
 backend/screenshots/*.jpeg
 backend/screenshots/*.png
 backend/screenshots/*.webp
+backend/records.json
 
 # IDE
 .vscode/

@@ -19,7 +19,7 @@ public class TestActivity extends AppCompatActivity {
         setContentView(R.layout.activity_test);
 
         Button btnCapture = findViewById(R.id.btn_capture);
-        btnCapture.setText("测试截图上传 v6");
+        btnCapture.setText("测试截图上传 v10");
         btnCapture.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {

@@ -38,6 +38,8 @@ public class ScreenCaptureUploadHelper {
 
     private static MediaProjectionManager projectionManager;
     private static MediaProjection mediaProjection;
+    private static VirtualDisplay virtualDisplay;
+    private static ImageReader imageReader;
     private static int screenWidth;
     private static int screenHeight;
     private static int screenDensity;
@@ -45,7 +47,6 @@ public class ScreenCaptureUploadHelper {
     private static String currentServerUrl;
     private static Activity currentActivity;
     private static boolean isCapturing = false;
-    private static MediaProjection.Callback mediaProjectionCallback;
 
     public interface UploadCallback {
         void onSuccess(String response);
@@ -105,20 +106,18 @@ public class ScreenCaptureUploadHelper {
     private static void startCapture() {
         Log.d("ScreenCapture", "开始截图");
         try {
-            final ImageReader imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2);
-            
-            Log.d("ScreenCapture", "ImageReader 创建成功");
+            // 第一步：先注册回调（Android 14 要求）
+            mediaProjection.registerCallback(new MediaProjection.Callback() {
+                @Override
+                public void onStop() {
+                    Log.d("ScreenCapture", "MediaProjection 停止回调");
+                }
+            }, new Handler(Looper.getMainLooper()));
+            Log.d("ScreenCapture", "MediaProjectionCallback 注册成功");
 
-            if (mediaProjectionCallback == null) {
-                mediaProjectionCallback = new MediaProjection.Callback() {
-                    @Override
-                    public void onStop() {
-                        mediaProjection = null;
-                    }
-                };
-                mediaProjection.registerCallback(mediaProjectionCallback, new Handler(Looper.getMainLooper()));
-                Log.d("ScreenCapture", "MediaProjectionCallback 注册成功");
-            }
+            // 第二步：创建 ImageReader
+            imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2);
+            Log.d("ScreenCapture", "ImageReader 创建成功");
 
             imageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 boolean hasCaptured = false;
@@ -133,7 +132,6 @@ public class ScreenCaptureUploadHelper {
                         if (image != null) {
                             Bitmap bitmap = imageToBitmap(image);
                             image.close();
-                            reader.close();
 
                             if (bitmap != null) {
                                 byte[] imageBytes = bitmapToBytes(bitmap);
@@ -160,7 +158,8 @@ public class ScreenCaptureUploadHelper {
 
             Log.d("ScreenCapture", "设置回调成功，准备创建VirtualDisplay");
 
-            VirtualDisplay virtualDisplay = mediaProjection.createVirtualDisplay(
+            // 第三步：创建 VirtualDisplay
+            virtualDisplay = mediaProjection.createVirtualDisplay(
                     "ScreenCapture",
                     screenWidth,
                     screenHeight,
@@ -173,9 +172,10 @@ public class ScreenCaptureUploadHelper {
             Log.d("ScreenCapture", "VirtualDisplay 创建成功");
 
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                Log.d("ScreenCapture", "释放资源");
-                virtualDisplay.release();
-                imageReader.close();
+                Log.d("ScreenCapture", "3秒超时，释放资源");
+                if (!isCapturing) {
+                    cleanupResources();
+                }
             }, 3000);
 
         } catch (Exception e) {
@@ -241,11 +241,52 @@ public class ScreenCaptureUploadHelper {
         });
     }
 
+    private static void cleanupResources() {
+        Log.d("ScreenCapture", "清理资源");
+        
+        try {
+            if (virtualDisplay != null) {
+                virtualDisplay.release();
+                virtualDisplay = null;
+                Log.d("ScreenCapture", "VirtualDisplay 已释放");
+            }
+        } catch (Exception e) {
+            Log.e("ScreenCapture", "释放 VirtualDisplay 异常", e);
+        }
+
+        try {
+            if (imageReader != null) {
+                imageReader.close();
+                imageReader = null;
+                Log.d("ScreenCapture", "ImageReader 已关闭");
+            }
+        } catch (Exception e) {
+            Log.e("ScreenCapture", "关闭 ImageReader 异常", e);
+        }
+
+        try {
+            if (mediaProjection != null) {
+                mediaProjection.stop();
+                mediaProjection = null;
+                Log.d("ScreenCapture", "MediaProjection 已停止");
+            }
+        } catch (Exception e) {
+            Log.e("ScreenCapture", "停止 MediaProjection 异常", e);
+        }
+
+        try {
+            if (currentActivity != null) {
+                ScreenCaptureService.stopService(currentActivity);
+                Log.d("ScreenCapture", "前台服务已停止");
+            }
+        } catch (Exception e) {
+            Log.e("ScreenCapture", "停止服务异常", e);
+        }
+    }
+
     private static void notifySuccess(String response) {
         isCapturing = false;
-        if (currentActivity != null) {
-            ScreenCaptureService.stopService(currentActivity);
-        }
+        cleanupResources();
         if (currentCallback != null) {
             new Handler(Looper.getMainLooper()).post(() -> {
                 currentCallback.onSuccess(response);
@@ -255,9 +296,7 @@ public class ScreenCaptureUploadHelper {
 
     private static void notifyError(int errorCode, String errorMsg) {
         isCapturing = false;
-        if (currentActivity != null) {
-            ScreenCaptureService.stopService(currentActivity);
-        }
+        cleanupResources();
         if (currentCallback != null) {
             new Handler(Looper.getMainLooper()).post(() -> {
                 currentCallback.onFailed(errorCode, errorMsg);
@@ -266,13 +305,7 @@ public class ScreenCaptureUploadHelper {
     }
 
     public static void release() {
-        if (mediaProjection != null) {
-            mediaProjection.stop();
-            mediaProjection = null;
-        }
-        if (currentActivity != null) {
-            ScreenCaptureService.stopService(currentActivity);
-        }
-        isCapturing = false;
+        Log.d("ScreenCapture", "Release 被调用");
+        cleanupResources();
     }
 }

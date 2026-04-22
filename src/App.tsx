@@ -1,334 +1,231 @@
-import { useState, useEffect } from 'react';
-import { Layout, Button, message, Upload, ConfigProvider, theme, Radio, Progress, List, Card } from 'antd';
-import { CameraOutlined, UploadOutlined, BarChartOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Layout, Menu, Card, List, Image, Button, Pagination, Modal, message, Typography, Spin, Empty } from 'antd';
+import { DeleteOutlined, PictureOutlined, HistoryOutlined, ReloadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import './App.css';
 
-const { Header, Content, Footer } = Layout;
+const { Header, Content, Sider } = Layout;
+const { Title, Text } = Typography;
 
-const galaxyTheme = {
-  algorithm: theme.darkAlgorithm,
-  token: {
-    colorPrimary: '#6366f1',
-    colorBgContainer: 'rgba(30, 41, 59, 0.8)',
-    borderRadius: 12,
-    colorBorder: 'rgba(148, 163, 184, 0.2)',
-    colorText: '#f8fafc',
-    colorTextSecondary: '#cbd5e1',
-  },
-};
+const BACKEND_URL = 'http://localhost:3002';
 
-const API_URL = 'http://192.168.31.175:3003';
+interface Record {
+  id: string;
+  filename: string;
+  originalFilename: string;
+  uploadedAt: string;
+  url: string;
+}
 
-function AppContent() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
-  const [actionType, setActionType] = useState<'upload' | 'analyze'>('upload');
-  const [aiModel, setAiModel] = useState('mock');
-  
-  // 历史截图列表
-  const [screenshots, setScreenshots] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+const Dashboard: React.FC = () => {
+  const [records, setRecords] = useState<Record[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // 页面加载时获取历史截图
+  const fetchRecords = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/records?pageSize=10`);
+      const data = await res.json();
+      if (data.success) {
+        setRecords(data.records);
+      }
+    } catch (error) {
+      console.error('获取记录失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    loadScreenshots();
+    fetchRecords();
+    // 每 5 秒刷新一次
+    const interval = setInterval(fetchRecords, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  const loadScreenshots = async () => {
-    setLoadingHistory(true);
+  return (
+    <div>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Title level={3} style={{ margin: 0 }}>📱 最新上传</Title>
+        <Button icon={<ReloadOutlined />} onClick={fetchRecords} loading={loading}>刷新</Button>
+      </div>
+      
+      <Spin spinning={loading}>
+        {records.length === 0 ? (
+          <Empty description="暂无上传记录，等待 Android 端上传..." />
+        ) : (
+          <List
+            grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
+            dataSource={records}
+            renderItem={(item) => (
+              <List.Item>
+                <Card
+                  hoverable
+                  cover={<Image src={`${BACKEND_URL}${item.url}`} alt="截图" preview={false} onClick={() => setPreviewImage(`${BACKEND_URL}${item.url}`)} style={{ cursor: 'pointer', height: 200, objectFit: 'cover' }} />}
+                  actions={[
+                    <Button type="link" size="small" onClick={() => setPreviewImage(`${BACKEND_URL}${item.url}`)}>查看大图</Button>
+                  ]}
+                >
+                  <Card.Meta
+                    title={<Text type="secondary" ellipsis>{item.filename}</Text>}
+                    description={<Text type="secondary">{dayjs(item.uploadedAt).format('YYYY-MM-DD HH:mm:ss')}</Text>}
+                  />
+                </Card>
+              </List.Item>
+            )}
+          />
+        )}
+      </Spin>
+
+      <Modal
+        open={!!previewImage}
+        footer={null}
+        onCancel={() => setPreviewImage(null)}
+        width="80%"
+      >
+        {previewImage && <Image src={previewImage} alt="截图" style={{ width: '100%' }} />}
+      </Modal>
+    </div>
+  );
+};
+
+const History: React.FC = () => {
+  const [records, setRecords] = useState<Record[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; record: Record | null }>({ open: false, record: null });
+
+  const fetchRecords = async (pageNum = 1) => {
+    setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/screenshots`);
-      const data = await response.json();
+      const res = await fetch(`${BACKEND_URL}/api/records?page=${pageNum}&pageSize=10`);
+      const data = await res.json();
       if (data.success) {
-        setScreenshots(data.screenshots);
+        setRecords(data.records);
+        setTotal(data.total);
+        setPage(pageNum);
       }
     } catch (error) {
-      console.error('获取截图列表失败:', error);
+      console.error('获取记录失败:', error);
     } finally {
-      setLoadingHistory(false);
+      setLoading(false);
     }
   };
 
-  const handleFileSelect = (file: File) => {
-    setSelectedFile(file);
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    setScreenshotUrl(null);
-    setAnalysisResult(null);
-    setAnalysisProgress(0);
-    return false;
-  };
+  useEffect(() => {
+    fetchRecords();
+  }, []);
 
-  const handleUpload = async () => {
-    if (!selectedFile) {
-      message.warning('请先选择一张图片!');
-      return;
-    }
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('screenshot', selectedFile);
-
+  const handleDelete = async () => {
+    if (!deleteConfirm.record) return;
+    
     try {
-      const response = await fetch(`${API_URL}/api/screenshot`, {
-        method: 'POST',
-        body: formData,
+      const res = await fetch(`${BACKEND_URL}/api/records/${deleteConfirm.record.id}`, {
+        method: 'DELETE'
       });
-
-      const data = await response.json();
-
+      const data = await res.json();
       if (data.success) {
-        setScreenshotUrl(data.url);
-        message.success('截图已同步到网站!');
-        // 刷新历史列表
-        loadScreenshots();
-      } else {
-        message.error(data.error || '上传失败');
+        message.success('删除成功');
+        setDeleteConfirm({ open: false, record: null });
+        fetchRecords(page);
       }
     } catch (error) {
-      console.error('上传失败:', error);
-      message.error('上传失败，请检查服务器是否启动');
-    } finally {
-      setUploading(false);
+      console.error('删除失败:', error);
+      message.error('删除失败');
     }
-  };
-
-  const handleAnalyze = async () => {
-    if (!selectedFile) {
-      message.warning('请先选择一张图片!');
-      return;
-    }
-
-    setAnalyzing(true);
-    setAnalysisProgress(10);
-    const formData = new FormData();
-    formData.append('screenshot', selectedFile);
-    formData.append('model', aiModel);
-
-    try {
-      // 模拟进度
-      const progressInterval = setInterval(() => {
-        setAnalysisProgress(prev => {
-          if (prev >= 80) {
-            clearInterval(progressInterval);
-            return 80;
-          }
-          return prev + 10;
-        });
-      }, 500);
-
-      const response = await fetch(`${API_URL}/api/analyze`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      clearInterval(progressInterval);
-      setAnalysisProgress(90);
-
-      const data = await response.json();
-
-      if (data.success) {
-        setScreenshotUrl(data.url);
-        setAnalysisResult(data.analysis);
-        setAnalysisProgress(100);
-        message.success('AI分析完成!');
-        // 刷新历史列表
-        loadScreenshots();
-      } else {
-        message.error(data.error || '分析失败');
-      }
-    } catch (error) {
-      console.error('分析失败:', error);
-      message.error('分析失败，请检查服务器是否启动');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const handleClear = () => {
-    setSelectedFile(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-    setPreviewUrl(null);
-    setScreenshotUrl(null);
-    setAnalysisResult(null);
-    setAnalysisProgress(0);
   };
 
   return (
-    <Layout className="app-layout">
-      <Header className="app-header">
-        <div className="header-content">
-          <div className="header-logo">
-            <span className="logo-icon">🎯</span>
-            <h1 className="header-title">截图同步与AI分析系统</h1>
-          </div>
-        </div>
-      </Header>
-
-      <Content className="app-content">
-        <div className="screenshot-container">
-          <div className="action-selector">
-            <Radio.Group 
-              value={actionType} 
-              onChange={(e) => setActionType(e.target.value)}
-              className="action-radio-group"
-            >
-              <Radio.Button value="upload">
-                <UploadOutlined /> 仅同步截图
-              </Radio.Button>
-              <Radio.Button value="analyze">
-                <BarChartOutlined /> 同步并AI分析
-              </Radio.Button>
-            </Radio.Group>
-
-            {actionType === 'analyze' && (
-              <div className="model-selector">
-                <span>AI模型：</span>
-                <Radio.Group 
-                  value={aiModel} 
-                  onChange={(e) => setAiModel(e.target.value)}
-                  buttonStyle="solid"
-                >
-                  <Radio.Button value="mock">模拟数据</Radio.Button>
-                  <Radio.Button value="openai">OpenAI GPT-4V</Radio.Button>
-                </Radio.Group>
-              </div>
-            )}
-          </div>
-
-          <Upload
-            accept="image/*"
-            showUploadList={false}
-            beforeUpload={handleFileSelect}
-            className="upload-area"
+    <div>
+      <Title level={3}>📚 历史记录</Title>
+      
+      <List
+        loading={loading}
+        dataSource={records}
+        locale={{ emptyText: '暂无历史记录' }}
+        renderItem={(item) => (
+          <List.Item
+            actions={[
+              <Button type="link" size="small" onClick={() => setPreviewImage(`${BACKEND_URL}${item.url}`)}>查看</Button>,
+              <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setDeleteConfirm({ open: true, record: item })}>删除</Button>
+            ]}
           >
-            <div className="upload-placeholder">
-              {previewUrl ? (
-                <img src={previewUrl} alt="预览" className="preview-image" />
-              ) : (
-                <>
-                  <CameraOutlined className="upload-icon" />
-                  <p className="upload-text">点击选择截图</p>
-                  <p className="upload-hint">支持 PNG, JPG, JPEG, WEBP 格式</p>
-                </>
-              )}
-            </div>
-          </Upload>
-
-          <div className="action-buttons">
-            <Button
-              type="primary"
-              size="large"
-              icon={uploading || analyzing ? undefined : actionType === 'upload' ? <UploadOutlined /> : <BarChartOutlined />}
-              onClick={actionType === 'upload' ? handleUpload : handleAnalyze}
-              disabled={!selectedFile || uploading || analyzing}
-              loading={uploading || analyzing}
-              className="primary-btn"
-            >
-              {uploading && '同步中...'}
-              {analyzing && '分析中...'}
-              {!uploading && !analyzing && actionType === 'upload' && '同步到网站'}
-              {!uploading && !analyzing && actionType === 'analyze' && '同步并分析'}
-            </Button>
-
-            <Button
-              size="large"
-              icon={<ReloadOutlined />}
-              onClick={loadScreenshots}
-              loading={loadingHistory}
-              className="secondary-btn"
-            >
-              刷新历史
-            </Button>
-
-            {selectedFile && (
-              <Button
-                size="large"
-                onClick={handleClear}
-                className="secondary-btn"
-              >
-                重新选择
-              </Button>
-            )}
-          </div>
-
-          {analyzing && (
-            <div className="progress-container">
-              <Progress 
-                percent={analysisProgress} 
-                status="active"
-                strokeColor="#6366f1"
-                style={{ marginTop: '16px' }}
-              />
-              <p className="progress-text">{actionType === 'analyze' ? 'AI分析中...' : '同步中...'}</p>
-            </div>
-          )}
-
-          {screenshotUrl && (
-            <div className="success-message">
-              <p>截图已同步成功！</p>
-              <a href={screenshotUrl} target="_blank" rel="noopener noreferrer">
-                查看截图
-              </a>
-            </div>
-          )}
-
-          {analysisResult && (
-            <div className="analysis-result">
-              <h3 className="analysis-title">AI分析结果</h3>
-              <pre className="analysis-content">{analysisResult}</pre>
-            </div>
-          )}
-
-          {/* 历史截图列表 */}
-          {screenshots.length > 0 && (
-            <div className="history-section">
-              <h3 className="history-title">📷 历史截图</h3>
-              <List
-                grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3 }}
-                dataSource={screenshots}
-                loading={loadingHistory}
-                renderItem={(item) => (
-                  <List.Item>
-                    <Card 
-                      hoverable
-                      cover={<img src={item.url} alt={item.filename} style={{ maxHeight: 200, objectFit: 'contain', padding: 16 }} />}
-                      className="screenshot-card"
-                    >
-                      <Card.Meta title={item.filename} />
-                    </Card>
-                  </List.Item>
-                )}
-              />
-            </div>
-          )}
+            <List.Item.Meta
+              avatar={<Image src={`${BACKEND_URL}${item.url}`} alt="缩略图" width={80} height={60} style={{ objectFit: 'cover', borderRadius: 4 }} />}
+              title={<Text>{item.filename}</Text>}
+              description={<Text type="secondary">{dayjs(item.uploadedAt).format('YYYY-MM-DD HH:mm:ss')}</Text>}
+            />
+          </List.Item>
+        )}
+      />
+      
+      {total > 0 && (
+        <div style={{ marginTop: 24, textAlign: 'center' }}>
+          <Pagination
+            current={page}
+            total={total}
+            pageSize={10}
+            onChange={(p) => fetchRecords(p)}
+          />
         </div>
-      </Content>
+      )}
 
-      <Footer className="app-footer">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-          <span>✨</span>
-          <span>截图同步与AI分析系统 ©{new Date().getFullYear()}</span>
-          <span>✨</span>
-        </div>
-      </Footer>
+      <Modal
+        open={!!previewImage}
+        footer={null}
+        onCancel={() => setPreviewImage(null)}
+        width="80%"
+      >
+        {previewImage && <Image src={previewImage} alt="截图" style={{ width: '100%' }} />}
+      </Modal>
+
+      <Modal
+        title="确认删除"
+        open={deleteConfirm.open}
+        onOk={handleDelete}
+        onCancel={() => setDeleteConfirm({ open: false, record: null })}
+        okText="删除"
+        okType="danger"
+      >
+        <p>确定要删除这条记录吗？</p>
+      </Modal>
+    </div>
+  );
+};
+
+const App: React.FC = () => {
+  const [current, setCurrent] = useState('dashboard');
+
+  const menuItems = [
+    { key: 'dashboard', icon: <PictureOutlined />, label: '首页' },
+    { key: 'history', icon: <HistoryOutlined />, label: '历史记录' },
+  ];
+
+  return (
+    <Layout style={{ minHeight: '100vh' }}>
+      <Header style={{ display: 'flex', alignItems: 'center' }}>
+        <Title level={4} style={{ color: '#fff', margin: 0, marginRight: 32 }}>🎯 射击成绩管理</Title>
+        <Menu
+          theme="dark"
+          mode="horizontal"
+          selectedKeys={[current]}
+          items={menuItems}
+          onClick={({ key }) => setCurrent(key)}
+          style={{ flex: 1, minWidth: 0 }}
+        />
+      </Header>
+      
+      <Layout>
+        <Content style={{ padding: '24px', margin: 0, minHeight: 280 }}>
+          {current === 'dashboard' && <Dashboard />}
+          {current === 'history' && <History />}
+        </Content>
+      </Layout>
     </Layout>
   );
-}
-
-function App() {
-  return (
-    <ConfigProvider theme={galaxyTheme}>
-      <AppContent />
-    </ConfigProvider>
-  );
-}
+};
 
 export default App;
