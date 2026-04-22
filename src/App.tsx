@@ -1,23 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
-import { Layout, Button, message, Row, Col, Tabs, Progress, Alert, ConfigProvider, theme, App as AntApp } from 'antd';
-import { UploadOutlined, SaveOutlined, HistoryOutlined } from '@ant-design/icons';
-import ImageUploader from './components/ImageUploader';
-import AnalysisResults from './components/AnalysisResults';
-import SettingsPanel from './components/SettingsPanel';
-import HistoryList from './components/HistoryList';
-import HistoryDetail from './components/HistoryDetail';
-import CompareAnalysis from './components/CompareAnalysis';
-import SaveRecordModal from './components/SaveRecordModal';
-import GalaxyBackground from './components/GalaxyBackground';
-import CurveLoader from './components/CurveLoader';
-import { HistoryRecord, AnalysisResult } from './types';
-import { aiService } from './services/aiService';
-import { MarkdownParser } from './services/markdownParser';
+import { useState, useEffect } from 'react';
+import { Layout, Button, message, Upload, ConfigProvider, theme, Radio, Progress, List, Card } from 'antd';
+import { CameraOutlined, UploadOutlined, BarChartOutlined, ReloadOutlined } from '@ant-design/icons';
 import './App.css';
 
 const { Header, Content, Footer } = Layout;
 
-// 自定义Ant Design主题
 const galaxyTheme = {
   algorithm: theme.darkAlgorithm,
   token: {
@@ -28,91 +15,88 @@ const galaxyTheme = {
     colorText: '#f8fafc',
     colorTextSecondary: '#cbd5e1',
   },
-  components: {
-    Card: {
-      headerBg: 'rgba(30, 41, 59, 0.6)',
-    },
-    Button: {
-      borderRadius: 12,
-      borderRadiusLG: 16,
-    },
-  },
 };
 
-// 图片压缩函数
-const compressImage = (file: File): Promise<File> => {
-  return new Promise((resolve, reject) => {
-    if (file.size <= 2 * 1024 * 1024) { // 小于2MB直接返回
-      resolve(file);
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-        const maxDimension = 1920;
-        
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round((height / width) * maxDimension);
-            width = maxDimension;
-          } else {
-            width = Math.round((width / height) * maxDimension);
-            height = maxDimension;
-          }
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                const compressedFile = new File([blob], file.name, {
-                  type: file.type,
-                  lastModified: Date.now(),
-                });
-                resolve(compressedFile);
-              } else {
-                reject(new Error('压缩失败'));
-              }
-            },
-            file.type === 'image/jpeg' || file.type === 'image/jpg' ? 'image/jpeg' : 'image/png',
-            0.85
-          );
-        } else {
-          resolve(file);
-        }
-      };
-      img.onerror = reject;
-      img.src = event.target?.result as string;
-    };
-    reader.onerror = reject;
-  });
-};
+const API_URL = 'http://192.168.31.175:3003';
 
 function AppContent() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [analysisContent, setAnalysisContent] = useState<string>('');
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [imageUrl, setImageUrl] = useState<string | undefined>();
-  const [error, setError] = useState<string | null>(null);
-  const [saveModalVisible, setSaveModalVisible] = useState(false);
-  const [historyDetailVisible, setHistoryDetailVisible] = useState(false);
-  const [compareVisible, setCompareVisible] = useState(false);
-  const [selectedHistoryRecord, setSelectedHistoryRecord] = useState<HistoryRecord | null>(null);
-  const [selectedCompareRecords, setSelectedCompareRecords] = useState<HistoryRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<string>('analyze');
-  const historyListRef = useRef<{ loadData: () => void }>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [actionType, setActionType] = useState<'upload' | 'analyze'>('upload');
+  const [aiModel, setAiModel] = useState('mock');
+  
+  // 历史截图列表
+  const [screenshots, setScreenshots] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // 页面加载时获取历史截图
+  useEffect(() => {
+    loadScreenshots();
+  }, []);
+
+  const loadScreenshots = async () => {
+    setLoadingHistory(true);
+    try {
+      const response = await fetch(`${API_URL}/api/screenshots`);
+      const data = await response.json();
+      if (data.success) {
+        setScreenshots(data.screenshots);
+      }
+    } catch (error) {
+      console.error('获取截图列表失败:', error);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    setScreenshotUrl(null);
+    setAnalysisResult(null);
+    setAnalysisProgress(0);
+    return false;
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      message.warning('请先选择一张图片!');
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('screenshot', selectedFile);
+
+    try {
+      const response = await fetch(`${API_URL}/api/screenshot`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setScreenshotUrl(data.url);
+        message.success('截图已同步到网站!');
+        // 刷新历史列表
+        loadScreenshots();
+      } else {
+        message.error(data.error || '上传失败');
+      }
+    } catch (error) {
+      console.error('上传失败:', error);
+      message.error('上传失败，请检查服务器是否启动');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!selectedFile) {
@@ -120,296 +104,229 @@ function AppContent() {
       return;
     }
 
-    setLoading(true);
-    setProgress(5);
-    setAnalysisContent('');
-    setAnalysisResult(null);
-    setError(null);
+    setAnalyzing(true);
+    setAnalysisProgress(10);
+    const formData = new FormData();
+    formData.append('screenshot', selectedFile);
+    formData.append('model', aiModel);
 
     try {
-      const compressedFile = await compressImage(selectedFile);
-      
-      const result = await aiService.analyzeImage(
-        compressedFile,
-        (p) => {
-          setProgress(Math.round(p * 100));
-        }
-      );
+      // 模拟进度
+      const progressInterval = setInterval(() => {
+        setAnalysisProgress(prev => {
+          if (prev >= 80) {
+            clearInterval(progressInterval);
+            return 80;
+          }
+          return prev + 10;
+        });
+      }, 500);
 
-      setAnalysisContent(result);
-      const parsedResult = MarkdownParser.parse(result);
-      setAnalysisResult(parsedResult);
+      const response = await fetch(`${API_URL}/api/analyze`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+      setAnalysisProgress(90);
+
+      const data = await response.json();
+
+      if (data.success) {
+        setScreenshotUrl(data.url);
+        setAnalysisResult(data.analysis);
+        setAnalysisProgress(100);
+        message.success('AI分析完成!');
+        // 刷新历史列表
+        loadScreenshots();
+      } else {
+        message.error(data.error || '分析失败');
+      }
     } catch (error) {
       console.error('分析失败:', error);
-      const errorMessage = error instanceof Error ? error.message : '分析失败，请重试';
-      setError(errorMessage);
-      message.error(errorMessage);
+      message.error('分析失败，请检查服务器是否启动');
     } finally {
-      setLoading(false);
-      setProgress(100);
+      setAnalyzing(false);
     }
   };
 
   const handleClear = () => {
     setSelectedFile(null);
-    setAnalysisContent('');
-    setAnalysisResult(null);
-    setImageUrl(undefined);
-    setError(null);
-    setLoading(false);
-    setProgress(0);
-  };
-
-  const resetAnalysisState = () => {
-    setAnalysisContent('');
-    setAnalysisResult(null);
-    setError(null);
-  };
-
-  const handleSaveClick = () => {
-    if (!analysisContent || !analysisResult) return;
-    setSaveModalVisible(true);
-  };
-
-  const handleSaveComplete = () => {
-    message.success('保存成功!');
-    if (historyListRef.current) {
-      historyListRef.current.loadData();
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
     }
+    setPreviewUrl(null);
+    setScreenshotUrl(null);
+    setAnalysisResult(null);
+    setAnalysisProgress(0);
   };
 
-  const handleViewHistory = (record: HistoryRecord) => {
-    setSelectedHistoryRecord(record);
-    setHistoryDetailVisible(true);
-  };
+  return (
+    <Layout className="app-layout">
+      <Header className="app-header">
+        <div className="header-content">
+          <div className="header-logo">
+            <span className="logo-icon">🎯</span>
+            <h1 className="header-title">截图同步与AI分析系统</h1>
+          </div>
+        </div>
+      </Header>
 
-  const handleCompareRecords = (records: HistoryRecord[]) => {
-    setSelectedCompareRecords(records);
-    setCompareVisible(true);
-  };
+      <Content className="app-content">
+        <div className="screenshot-container">
+          <div className="action-selector">
+            <Radio.Group 
+              value={actionType} 
+              onChange={(e) => setActionType(e.target.value)}
+              className="action-radio-group"
+            >
+              <Radio.Button value="upload">
+                <UploadOutlined /> 仅同步截图
+              </Radio.Button>
+              <Radio.Button value="analyze">
+                <BarChartOutlined /> 同步并AI分析
+              </Radio.Button>
+            </Radio.Group>
 
-  const tabItems = [
-    {
-      key: 'analyze',
-      label: (
-        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500 }}>
-          <UploadOutlined />
-          智能分析
-        </span>
-      ),
-    },
-    {
-      key: 'history',
-      label: (
-        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500 }}>
-          <HistoryOutlined />
-          历史记录
-        </span>
-      ),
-    },
-  ];
-
-  const analysisContentComponent = (
-    <Row gutter={[24, 24]}>
-      <Col xs={24} lg={10}>
-        <SettingsPanel onModelChange={resetAnalysisState} />
-        <ImageUploader
-          selectedFile={selectedFile}
-          onImageSelected={setSelectedFile}
-          onImageCleared={handleClear}
-        />
-        <div className="mt-4" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {loading && (
-            <div className="glass-card" style={{ padding: '24px' }}>
-              <CurveLoader text="AI分析中" />
-              <div style={{ marginTop: '16px' }}>
-                <div style={{ marginBottom: '8px', color: '#94a3b8', fontSize: '14px' }}>
-                  处理进度: {progress}%
-                </div>
-                <div className="progress-container">
-                  <div 
-                    className="progress-bar" 
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {error && (
-            <Alert
-              message="分析失败"
-              description={error}
-              type="error"
-              showIcon
-              action={
-                <Button 
-                  size="small" 
-                  danger 
-                  onClick={handleAnalyze}
-                  style={{ borderRadius: '8px' }}
+            {actionType === 'analyze' && (
+              <div className="model-selector">
+                <span>AI模型：</span>
+                <Radio.Group 
+                  value={aiModel} 
+                  onChange={(e) => setAiModel(e.target.value)}
+                  buttonStyle="solid"
                 >
-                  重试
-                </Button>
-              }
-              style={{ 
-                borderRadius: '12px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)'
-              }}
-            />
-          )}
-          
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <Radio.Button value="mock">模拟数据</Radio.Button>
+                  <Radio.Button value="openai">OpenAI GPT-4V</Radio.Button>
+                </Radio.Group>
+              </div>
+            )}
+          </div>
+
+          <Upload
+            accept="image/*"
+            showUploadList={false}
+            beforeUpload={handleFileSelect}
+            className="upload-area"
+          >
+            <div className="upload-placeholder">
+              {previewUrl ? (
+                <img src={previewUrl} alt="预览" className="preview-image" />
+              ) : (
+                <>
+                  <CameraOutlined className="upload-icon" />
+                  <p className="upload-text">点击选择截图</p>
+                  <p className="upload-hint">支持 PNG, JPG, JPEG, WEBP 格式</p>
+                </>
+              )}
+            </div>
+          </Upload>
+
+          <div className="action-buttons">
             <Button
               type="primary"
               size="large"
-              icon={loading ? undefined : <UploadOutlined />}
-              onClick={handleAnalyze}
-              disabled={!selectedFile || loading}
-              style={{ 
-                flex: 1, 
-                minWidth: '140px',
-                height: '48px',
-                fontSize: '15px',
-                fontWeight: 600,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                border: 'none',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
-              }}
-              className="galaxy-btn-primary"
+              icon={uploading || analyzing ? undefined : actionType === 'upload' ? <UploadOutlined /> : <BarChartOutlined />}
+              onClick={actionType === 'upload' ? handleUpload : handleAnalyze}
+              disabled={!selectedFile || uploading || analyzing}
+              loading={uploading || analyzing}
+              className="primary-btn"
             >
-              {loading ? '分析中...' : '开始AI分析'}
+              {uploading && '同步中...'}
+              {analyzing && '分析中...'}
+              {!uploading && !analyzing && actionType === 'upload' && '同步到网站'}
+              {!uploading && !analyzing && actionType === 'analyze' && '同步并分析'}
             </Button>
-            
-            {analysisContent && (
-              <>
-                <Button
-                  size="large"
-                  icon={<SaveOutlined />}
-                  onClick={handleSaveClick}
-                  style={{ 
-                    height: '48px',
-                    fontSize: '15px',
-                    fontWeight: 500,
-                    background: 'rgba(51, 65, 85, 0.8)',
-                    border: '1px solid rgba(148, 163, 184, 0.2)',
-                    color: '#f8fafc'
-                  }}
-                >
-                  保存记录
-                </Button>
-                
-                <Button
-                  size="large"
-                  onClick={handleClear}
-                  style={{ 
-                    height: '48px',
-                    fontSize: '15px',
-                    fontWeight: 500,
-                    background: 'rgba(51, 65, 85, 0.8)',
-                    border: '1px solid rgba(148, 163, 184, 0.2)',
-                    color: '#f8fafc'
-                  }}
-                >
-                  重新上传
-                </Button>
-              </>
+
+            <Button
+              size="large"
+              icon={<ReloadOutlined />}
+              onClick={loadScreenshots}
+              loading={loadingHistory}
+              className="secondary-btn"
+            >
+              刷新历史
+            </Button>
+
+            {selectedFile && (
+              <Button
+                size="large"
+                onClick={handleClear}
+                className="secondary-btn"
+              >
+                重新选择
+              </Button>
             )}
           </div>
-        </div>
-      </Col>
 
-      <Col xs={24} lg={14}>
-        <AnalysisResults content={analysisContent} isLoading={loading} />
-      </Col>
-    </Row>
-  );
-
-  return (
-    <>
-      <GalaxyBackground />
-      <Layout className="app-layout">
-        <Header className="app-header">
-          <div className="header-content">
-            <div className="header-logo">
-              <span className="logo-icon">🎯</span>
-              <h1 className="header-title">气步枪打靶数据分析系统</h1>
-            </div>
-          </div>
-        </Header>
-
-        <Content className="app-content">
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            size="large"
-            items={tabItems}
-            className="custom-tabs"
-            style={{ marginBottom: '32px' }}
-            tabBarStyle={{
-              background: 'rgba(30, 41, 59, 0.6)',
-              padding: '8px',
-              borderRadius: '16px',
-              border: '1px solid rgba(148, 163, 184, 0.15)',
-              backdropFilter: 'blur(20px)',
-            }}
-          />
-
-          <div className="fade-in">
-            {activeTab === 'analyze' && analysisContentComponent}
-            {activeTab === 'history' && (
-              <HistoryList
-                ref={historyListRef}
-                onViewRecord={handleViewHistory}
-                onCompareRecords={handleCompareRecords}
+          {analyzing && (
+            <div className="progress-container">
+              <Progress 
+                percent={analysisProgress} 
+                status="active"
+                strokeColor="#6366f1"
+                style={{ marginTop: '16px' }}
               />
-            )}
-          </div>
-        </Content>
+              <p className="progress-text">{actionType === 'analyze' ? 'AI分析中...' : '同步中...'}</p>
+            </div>
+          )}
 
-        <Footer className="app-footer">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <span>✨</span>
-            <span>气步枪打靶数据分析系统 ©{new Date().getFullYear()}</span>
-            <span>✨</span>
-          </div>
-        </Footer>
+          {screenshotUrl && (
+            <div className="success-message">
+              <p>截图已同步成功！</p>
+              <a href={screenshotUrl} target="_blank" rel="noopener noreferrer">
+                查看截图
+              </a>
+            </div>
+          )}
 
-        <SaveRecordModal
-          visible={saveModalVisible}
-          analysisResult={analysisResult}
-          imageUrl={imageUrl}
-          onClose={() => setSaveModalVisible(false)}
-          onSave={handleSaveComplete}
-        />
+          {analysisResult && (
+            <div className="analysis-result">
+              <h3 className="analysis-title">AI分析结果</h3>
+              <pre className="analysis-content">{analysisResult}</pre>
+            </div>
+          )}
 
-        {selectedHistoryRecord && (
-          <HistoryDetail
-            visible={historyDetailVisible}
-            record={selectedHistoryRecord}
-            onClose={() => setHistoryDetailVisible(false)}
-          />
-        )}
+          {/* 历史截图列表 */}
+          {screenshots.length > 0 && (
+            <div className="history-section">
+              <h3 className="history-title">📷 历史截图</h3>
+              <List
+                grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3 }}
+                dataSource={screenshots}
+                loading={loadingHistory}
+                renderItem={(item) => (
+                  <List.Item>
+                    <Card 
+                      hoverable
+                      cover={<img src={item.url} alt={item.filename} style={{ maxHeight: 200, objectFit: 'contain', padding: 16 }} />}
+                      className="screenshot-card"
+                    >
+                      <Card.Meta title={item.filename} />
+                    </Card>
+                  </List.Item>
+                )}
+              />
+            </div>
+          )}
+        </div>
+      </Content>
 
-        {selectedCompareRecords.length > 0 && (
-          <CompareAnalysis
-            visible={compareVisible}
-            records={selectedCompareRecords}
-            onClose={() => setCompareVisible(false)}
-          />
-        )}
-      </Layout>
-    </>
+      <Footer className="app-footer">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <span>✨</span>
+          <span>截图同步与AI分析系统 ©{new Date().getFullYear()}</span>
+          <span>✨</span>
+        </div>
+      </Footer>
+    </Layout>
   );
 }
 
 function App() {
   return (
     <ConfigProvider theme={galaxyTheme}>
-      <AntApp>
-        <AppContent />
-      </AntApp>
+      <AppContent />
     </ConfigProvider>
   );
 }

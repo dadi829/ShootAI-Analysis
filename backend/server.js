@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import sharp from 'sharp';
+import fetch from 'node-fetch';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -16,10 +18,66 @@ const PORT = 3002;
 const TIMEOUT = 50000; // 50秒超时
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+// 添加请求日志
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - ${req.headers['user-agent']}`);
+  next();
+});
+
+const screenshotsDir = path.join(__dirname, 'screenshots');
+if (!fs.existsSync(screenshotsDir)) {
+  fs.mkdirSync(screenshotsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, screenshotsDir);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname) || '.png';
+    cb(null, `screenshot_${timestamp}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('只支持 PNG、JPG、JPEG、WEBP 格式的图片'));
+    }
+  }
+});
+
+app.use('/screenshots', express.static(screenshotsDir));
+
+// 图片预处理函数
+async function preprocessImage(imagePath) {
+  try {
+    const processedPath = imagePath.replace(/\.(png|jpg|jpeg|webp)$/i, '_processed.jpg');
+    
+    await sharp(imagePath)
+      .resize(1920, 1080, { fit: 'inside' })
+      .jpeg({ quality: 85, progressive: true })
+      .toFile(processedPath);
+    
+    return processedPath;
+  } catch (error) {
+    console.error('图片预处理失败:', error);
+    return imagePath; // 失败时返回原图片
+  }
+}
+
+// 读取图片为Base64
+function imageToBase64(imagePath) {
+  return fs.readFileSync(imagePath, { encoding: 'base64' });
+}
 
 const SYSTEM_PROMPT = `【绝对角色】你是10米气步枪专业射击轨迹分析教练，只处理用户上传的「10米射击训练系统截图」，禁止回答任何其他问题。
 
@@ -116,7 +174,12 @@ async function fetchWithTimeout(url, options, timeout = TIMEOUT) {
   }
 }
 
-async function callOpenAI(imageBase64) {
+async function callAI(imageBase64, model = 'mock') {
+  if (model === 'mock') {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    return mockAnalysisResult;
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OpenAI API密钥未配置');
 
@@ -158,267 +221,111 @@ async function callOpenAI(imageBase64) {
   return content;
 }
 
-async function callTongyi(imageBase64) {
-  const apiKey = process.env.TONGYI_API_KEY;
-  if (!apiKey) throw new Error('通义千问API密钥未配置');
-
-  const response = await fetchWithTimeout('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: 'qwen-vl-max',
-      input: {
-        messages: [
-          {
-            role: 'system',
-            content: [{ text: SYSTEM_PROMPT }]
-          },
-          {
-            role: 'user',
-            content: [
-              { image: `data:image/jpeg;base64,${imageBase64}` },
-              { text: '请分析这张射击训练截图' }
-            ]
-          }
-        ]
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`通义千问API请求失败: ${error}`);
-  }
-
-  const data = await response.json();
-  const content = data.output.choices[0].message.content[0].text;
-  return content;
-}
-
-async function callDoubao(imageBase64) {
-  const apiKey = process.env.DOUBAO_API_KEY;
-  if (!apiKey) throw new Error('豆包API密钥未配置');
-
-  const response = await fetchWithTimeout('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: 'ep-20260421181425-qstst',
-      messages: [
-        {
-          role: 'system',
-          content: SYSTEM_PROMPT
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: '请分析这张射击训练截图' },
-            {
-              type: 'image_url',
-              image_url: { url: `data:image/jpeg;base64,${imageBase64}` }
-            }
-          ]
-        }
-      ],
-      max_tokens: 2048
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`豆包API请求失败: ${error}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices[0].message.content;
-  return content;
-}
-
-// SSE流式响应函数
-async function streamMockAnalysis(res) {
-  // 分块发送模拟数据
-  const chunks = [];
-  let temp = '';
-  mockAnalysisResult.split('').forEach(char => {
-    temp += char;
-    if (temp.length >= 20 || ['.', '!', '。', '！', '\n'].includes(char)) {
-      if (temp.trim()) chunks.push(temp);
-      temp = '';
-    }
-  });
-  if (temp.trim()) chunks.push(temp);
-  
-  let currentContent = '';
-  let currentProgress = 10;
-  
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    currentContent += chunk;
-    res.write(`data: ${JSON.stringify({ type: 'content', data: currentContent })}\n\n`);
-    currentProgress = Math.min(currentProgress + Math.floor(90 / chunks.length), 90);
-    res.write(`data: ${JSON.stringify({ type: 'progress', data: currentProgress })}\n\n`);
-    
-    // 模拟延迟
-    await new Promise(resolve => setTimeout(resolve, 80));
-  }
-  
-  res.write(`data: ${JSON.stringify({ type: 'progress', data: 100 })}\n\n`);
-  res.write(`data: ${JSON.stringify({ type: 'done', data: mockAnalysisResult })}\n\n`);
-  res.end();
-}
-
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'API服务器运行正常' });
+  res.json({ status: 'ok', message: '服务运行正常' });
 });
 
-app.get('/api/models', (req, res) => {
-  res.json({
-    models: [
-      { id: 'mock', name: '模拟数据', available: true },
-      { id: 'openai', name: 'OpenAI (GPT-4V)', available: !!process.env.OPENAI_API_KEY },
-      { id: 'tongyi', name: '通义千问 (Qwen-VL)', available: !!process.env.TONGYI_API_KEY },
-      { id: 'doubao', name: '豆包 (Doubao)', available: !!process.env.DOUBAO_API_KEY }
-    ]
-  });
-});
-
-// SSE流式分析端点
-app.post('/api/analyze', upload.single('image'), async (req, res) => {
+app.post('/upload', upload.single('image'), async (req, res) => {
   try {
-    const { model = 'mock', stream = 'false' } = req.body;
-
     if (!req.file) {
-      return res.status(400).json({ error: '请上传图片' });
+      return res.status(400).json({ error: '请上传截图' });
     }
 
-    const imageBase64 = req.file.buffer.toString('base64');
+    // 图片预处理
+    const processedPath = await preprocessImage(req.file.path);
+    
+    res.json({
+      success: true,
+      filename: path.basename(processedPath)
+    });
+  } catch (error) {
+    console.error('上传失败:', error);
+    res.status(500).json({ error: error.message || '上传失败' });
+  }
+});
 
-    const startTime = Date.now();
-    console.log(`开始分析，使用模型: ${model}, 流式: ${stream}`);
-
-    if (stream === 'true') {
-      // SSE流式响应
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
-      });
-
-      if (model === 'mock') {
-        await streamMockAnalysis(res);
-        return;
-      }
-
-      // 对于真实模型，先完成分析再发送
-      let result;
-      switch (model) {
-        case 'openai':
-          result = await callOpenAI(imageBase64);
-          break;
-        case 'tongyi':
-          result = await callTongyi(imageBase64);
-          break;
-        case 'doubao':
-          result = await callDoubao(imageBase64);
-          break;
-        default:
-          res.write(`data: ${JSON.stringify({ type: 'error', data: '不支持的模型' })}\n\n`);
-          res.end();
-          return;
-      }
-
-      // 流式发送结果
-      const chunks = [];
-      let temp = '';
-      result.split('').forEach(char => {
-        temp += char;
-        if (temp.length >= 20 || ['.', '!', '。', '！', '\n'].includes(char)) {
-          if (temp.trim()) chunks.push(temp);
-          temp = '';
-        }
-      });
-      if (temp.trim()) chunks.push(temp);
-      
-      let currentContent = '';
-      let currentProgress = 10;
-      
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        currentContent += chunk;
-        res.write(`data: ${JSON.stringify({ type: 'content', data: currentContent })}\n\n`);
-        currentProgress = Math.min(currentProgress + Math.floor(90 / chunks.length), 90);
-        res.write(`data: ${JSON.stringify({ type: 'progress', data: currentProgress })}\n\n`);
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      
-      res.write(`data: ${JSON.stringify({ type: 'progress', data: 100 })}\n\n`);
-      res.write(`data: ${JSON.stringify({ type: 'done', data: result })}\n\n`);
-      res.end();
-      
-      const duration = Date.now() - startTime;
-      console.log(`流式分析完成，耗时: ${duration}ms`);
-      return;
+app.post('/api/screenshot', upload.single('screenshot'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '请上传截图' });
     }
 
-    // 传统响应
-    let result;
-    switch (model) {
-      case 'mock':
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        result = mockAnalysisResult;
-        break;
-      case 'openai':
-        result = await callOpenAI(imageBase64);
-        break;
-      case 'tongyi':
-        result = await callTongyi(imageBase64);
-        break;
-      case 'doubao':
-        result = await callDoubao(imageBase64);
-        break;
-      default:
-        return res.status(400).json({ error: '不支持的模型' });
+    // 图片预处理
+    const processedPath = await preprocessImage(req.file.path);
+    
+    const screenshotUrl = `http://192.168.31.175:${PORT}/screenshots/${path.basename(processedPath)}`;
+    res.json({
+      success: true,
+      url: screenshotUrl,
+      filename: path.basename(processedPath),
+      size: fs.statSync(processedPath).size
+    });
+  } catch (error) {
+    console.error('上传失败:', error);
+    res.status(500).json({ error: error.message || '上传失败' });
+  }
+});
+
+app.post('/api/analyze', upload.single('screenshot'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '请上传截图' });
     }
 
-    const duration = Date.now() - startTime;
-    console.log(`分析完成，耗时: ${duration}ms`);
+    const { model = 'mock' } = req.body;
 
-    res.json({ success: true, data: result });
+    // 图片预处理
+    const processedPath = await preprocessImage(req.file.path);
+    const imageBase64 = imageToBase64(processedPath);
+
+    // 异步分析
+    const analysisResult = await callAI(imageBase64, model);
+
+    const screenshotUrl = `http://192.168.31.175:${PORT}/screenshots/${path.basename(processedPath)}`;
+    
+    res.json({
+      success: true,
+      url: screenshotUrl,
+      analysis: analysisResult,
+      filename: path.basename(processedPath)
+    });
   } catch (error) {
     console.error('分析失败:', error);
-    
-    if (req.body.stream === 'true') {
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'text/event-stream' });
-      }
-      const errorMsg = error.name === 'AbortError' ? '请求超时，请稍后重试或使用模拟数据' : (error.message || '分析失败');
-      res.write(`data: ${JSON.stringify({ type: 'error', data: errorMsg })}\n\n`);
-      res.end();
-    } else {
-      if (error.name === 'AbortError') {
-        res.status(504).json({ error: '请求超时，请稍后重试或使用模拟数据' });
-      } else {
-        res.status(500).json({ error: error.message || '分析失败，请稍后重试' });
-      }
-    }
+    res.status(500).json({ error: error.message || '分析失败' });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 API服务器已启动！`);
-  console.log(`📍 访问地址: http://localhost:${PORT}`);
-  console.log(`⏱️  请求超时: ${TIMEOUT/1000}秒`);
-  console.log(`\n📊 可用模型:`);
-  console.log(`   • 模拟数据: ${process.env.MOCK_ENABLED !== 'false' ? '✅ 可用' : '❌ 禁用'}`);
-  console.log(`   • OpenAI: ${process.env.OPENAI_API_KEY ? '✅ 已配置' : '❌ 未配置'}`);
-  console.log(`   • 通义千问: ${process.env.TONGYI_API_KEY ? '✅ 已配置' : '❌ 未配置'}`);
-  console.log(`   • 豆包: ${process.env.DOUBAO_API_KEY ? '✅ 已配置' : '❌ 未配置'}`);
-  console.log(`\n`);
+// 获取所有截图列表
+app.get('/api/screenshots', (req, res) => {
+  try {
+    const files = fs.readdirSync(screenshotsDir)
+      .filter(file => {
+        // 只返回图片文件，忽略其他
+        return file.match(/\.(jpg|jpeg|png|webp)$/i) && !file.includes('_processed');
+      })
+      .map(file => ({
+        filename: file,
+        url: `http://192.168.31.175:${PORT}/screenshots/${file}`,
+        uploadedAt: fs.statSync(path.join(screenshotsDir, file)).mtime
+      }))
+      // 按时间倒序，最新的在最前
+      .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+
+    res.json({
+      success: true,
+      screenshots: files
+    });
+  } catch (error) {
+    console.error('获取截图列表失败:', error);
+    res.status(500).json({ error: '获取截图列表失败' });
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 服务已启动！`);
+  console.log(`📍 本地访问: http://localhost:${PORT}`);
+  console.log(`📱 局域网访问: http://192.168.31.175:${PORT}`);
+  console.log(`📁 截图保存目录: ${screenshotsDir}`);
+  console.log(`
+`);
 });
