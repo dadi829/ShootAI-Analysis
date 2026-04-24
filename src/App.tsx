@@ -216,7 +216,7 @@ const AIAnalysisPage = () => {
         body: JSON.stringify({ recordId: selectedRecord.id })
       });
       const data = await res.json();
-      const debugStr = `status=${res.status}, success=${data.success}, hasAnalysis=!!${!!data.analysis}, analysisSuccess=${data.analysis?.success}, hasShot=!!${!!data.analysis?.shot}, hasSummary=!!${!!data.analysis?.summary}`;
+      const debugStr = `status=${res.status}, success=${data.success}, hasAnalysis=${!!data.analysis}, analysisSuccess=${data.analysis?.success}, hasShot=${!!data.analysis?.shot}, hasSummary=${!!data.analysis?.summary}`;
       setDebugInfo(debugStr);
       
       if (data.success && data.analysis) {
@@ -414,7 +414,7 @@ const AIAnalysisPage = () => {
                                 {analysisData.summary.stabilityRating}
                               </Tag>
                               <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                                {analysisData.shot.trajectory?.red?.stability || '未检测'}
+                                {analysisData.shot?.trajectory?.red?.stability || '未检测'}
                               </div>
                             </Card>
                           </Col>
@@ -425,7 +425,7 @@ const AIAnalysisPage = () => {
                                 {analysisData.summary.triggerControlRating}
                               </Tag>
                               <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                                {analysisData.shot.trajectory?.blue?.quality || '未检测'}
+                                {analysisData.shot?.trajectory?.blue?.quality || '未检测'}
                               </div>
                             </Card>
                           </Col>
@@ -436,7 +436,7 @@ const AIAnalysisPage = () => {
                                 {analysisData.summary.followThroughRating}
                               </Tag>
                               <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                                {analysisData.shot.trajectory?.green?.stable ? '稳定' : '不稳定'}
+                                {analysisData.shot?.trajectory?.green?.stable ? '稳定' : '不稳定'}
                               </div>
                             </Card>
                           </Col>

@@ -105,7 +105,8 @@ async function callAI(imageBase64, model = 'mock') {
 
   const apiKey = process.env.DOUBAO_API_KEY;
   const endpoint = process.env.DOUBAO_ENDPOINT;
-  if (!apiKey || !endpoint) throw new Error('DOUBAO API config missing');
+  if (!apiKey) throw new Error('DOUBAO_API_KEY未配置');
+  if (!endpoint) throw new Error('DOUBAO_ENDPOINT未配置');
 
   const response = await fetchWithTimeout('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
     method: 'POST',
