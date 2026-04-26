@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Card, List, Image, Button, Pagination, Modal, message, Typography, Spin, Empty, Tag, Row, Col, Upload, Descriptions } from 'antd';
-import { DeleteOutlined, PictureOutlined, HistoryOutlined, ReloadOutlined, RobotOutlined, UploadOutlined, CheckCircleFilled, ThunderboltOutlined } from '@ant-design/icons';
+import { Layout, Menu, Card, List, Image, Button, Pagination, Modal, message, Typography, Spin, Empty, Tag, Row, Col, Upload, Descriptions, Progress, Collapse } from 'antd';
+import { DeleteOutlined, PictureOutlined, HistoryOutlined, ReloadOutlined, RobotOutlined, UploadOutlined, CheckCircleFilled, ThunderboltOutlined, BulbOutlined, WarningOutlined, CheckOutlined, FireOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import './App.css';
 
 const { Header, Content } = Layout;
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
+const { Panel } = Collapse;
 
 const BACKEND_URL = 'http://localhost:3002';
 
@@ -15,6 +16,8 @@ interface ShotRecord {
   originalFilename: string;
   uploadedAt: string;
   url: string;
+  analysis?: any;
+  analyzedAt?: string;
 }
 
 const LiveUploadPage = () => {
@@ -65,8 +68,24 @@ const LiveUploadPage = () => {
           console.error('删除失败:', error);
           message.error('删除失败');
         }
-      }
+      },
     });
+  };
+
+  const getStatusTag = (item: ShotRecord) => {
+    if (item.analysis) {
+      const data = item.analysis;
+      const ring = data.metadata?.hit_ring;
+      const score = data.overall_assessment?.comprehensive_score;
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+          {ring && <Tag color="blue">🎯 {ring}环</Tag>}
+          {score && <Tag color="green">⭐ {score}/10</Tag>}
+          {!ring && !score && <Tag color="green">🤖 已分析</Tag>}
+        </div>
+      );
+    }
+    return <Tag color="default">✅ 已接收</Tag>;
   };
 
   return (
@@ -105,7 +124,7 @@ const LiveUploadPage = () => {
                       </Button>,
                       <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(item)}>
                         删除
-                      </Button>
+                      </Button>,
                     ]}
                   >
                     <Card.Meta
@@ -113,7 +132,7 @@ const LiveUploadPage = () => {
                       description={
                         <div style={{ fontSize: '12px' }}>
                           <div>📅 {dayjs(item.uploadedAt).format('YYYY-MM-DD HH:mm:ss')}</div>
-                          <div>✅ 已接收</div>
+                          <div style={{ marginTop: 4 }}>{getStatusTag(item)}</div>
                         </div>
                       }
                     />
@@ -148,36 +167,12 @@ const LiveUploadPage = () => {
   );
 };
 
-interface AnalysisData {
-  success: boolean;
-  shot?: {
-    ring: number;
-    position: { x: number; y: number };
-    trajectory: {
-      red: { direction: string; stability: string; hasStraightSegment: boolean };
-      blue: { length: string; hasSuddenShift: boolean; quality: string };
-      green: { stable: boolean; hasJump: boolean };
-    };
-  };
-  summary?: {
-    stabilityRating: string;
-    triggerControlRating: string;
-    followThroughRating: string;
-    mainIssue: string;
-    suggestion: string;
-  };
-  error?: string;
-  rawContent?: string;
-}
-
-const ratingColorMap: Record<string, string> = { '优': 'green', '良': 'blue', '中': 'orange', '差': 'red' };
-
 const AIAnalysisPage = () => {
   const [records, setRecords] = useState<ShotRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<ShotRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [recordsLoading, setRecordsLoading] = useState(true);
-  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+  const [analysisData, setAnalysisData] = useState<any>(null);
   const [messageApi, contextHolder] = message.useMessage();
 
   const fetchRecords = async () => {
@@ -199,8 +194,6 @@ const AIAnalysisPage = () => {
     fetchRecords();
   }, []);
 
-  const [debugInfo, setDebugInfo] = useState<string>('');
-
   const handleAnalyze = async () => {
     if (!selectedRecord) {
       messageApi.warning('请先选择一张图片');
@@ -208,7 +201,6 @@ const AIAnalysisPage = () => {
     }
     setLoading(true);
     setAnalysisData(null);
-    setDebugInfo('请求中...');
     try {
       const res = await fetch(`${BACKEND_URL}/api/analyze/trajectory`, {
         method: 'POST',
@@ -216,21 +208,18 @@ const AIAnalysisPage = () => {
         body: JSON.stringify({ recordId: selectedRecord.id })
       });
       const data = await res.json();
-      const debugStr = `status=${res.status}, success=${data.success}, hasAnalysis=${!!data.analysis}, analysisSuccess=${data.analysis?.success}, hasShot=${!!data.analysis?.shot}, hasSummary=${!!data.analysis?.summary}`;
-      setDebugInfo(debugStr);
       
       if (data.success && data.analysis) {
         setAnalysisData(data.analysis);
-        if (data.analysis.success) {
-          messageApi.success('AI 分析完成！');
-        } else {
+        if (data.analysis.success === false) {
           messageApi.warning(data.analysis.error || '分析未成功');
+        } else {
+          messageApi.success('AI 分析完成！');
         }
       } else {
-        messageApi.error(`分析失败: ${data.error || '未知'} | ${debugStr}`);
+        messageApi.error(`分析失败: ${data.error || '未知'}`);
       }
     } catch (error: any) {
-      setDebugInfo(`异常: ${error.message}`);
       messageApi.error(`连接服务器失败: ${error.message}`);
     } finally {
       setLoading(false);
@@ -251,10 +240,10 @@ const AIAnalysisPage = () => {
       const data = await res.json();
       if (data.success && data.analysis) {
         setAnalysisData(data.analysis);
-        if (data.analysis.success) {
-          messageApi.success('AI 分析完成！');
-        } else {
+        if (data.analysis.success === false) {
           messageApi.warning(data.analysis.error || '分析未成功');
+        } else {
+          messageApi.success('AI 分析完成！');
         }
       } else {
         messageApi.error(data.error || '分析失败');
@@ -267,37 +256,224 @@ const AIAnalysisPage = () => {
     }
   };
 
-  const handleMockTest = async () => {
-    setLoading(true);
-    setAnalysisData(null);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setAnalysisData({
-        success: true,
-        shot: {
-          ring: 9,
-          position: { x: 48, y: 45 },
-          trajectory: {
-            red: { direction: '从下往上偏左入靶', stability: '稳定', hasStraightSegment: false },
-            blue: { length: '短', hasSuddenShift: false, quality: '良好' },
-            green: { stable: true, hasJump: false }
-          }
-        },
-        summary: {
-          stabilityRating: '良',
-          triggerControlRating: '优',
-          followThroughRating: '良',
-          mainIssue: '红色段入靶方向偏左，建议调整据枪姿势',
-          suggestion: '注意举枪入靶时保持自然指向，避免过度修正'
-        }
-      });
-      messageApi.success('Mock 分析完成！');
-    } catch (error) {
-      console.error('Mock测试失败:', error);
-      messageApi.error('Mock 分析失败！');
-    } finally {
-      setLoading(false);
-    }
+  const getRatingColor = (rating: number) => {
+    if (rating >= 8) return 'green';
+    if (rating >= 6) return 'blue';
+    if (rating >= 4) return 'orange';
+    return 'red';
+  };
+
+  const getPriorityColor = (priority: string) => {
+    if (priority === 'high') return 'red';
+    if (priority === 'medium') return 'orange';
+    return 'green';
+  };
+
+  const getPriorityIcon = (priority: string) => {
+    if (priority === 'high') return <FireOutlined />;
+    if (priority === 'medium') return <WarningOutlined />;
+    return <BulbOutlined />;
+  };
+
+  const renderAnalysis = (data: any) => {
+    const overall = data.overall_assessment;
+    const trajectory = data.trajectory_analysis;
+    const pressure = data.trigger_pressure_analysis;
+    const suggestions = data.improvement_suggestions;
+    const meta = data.metadata;
+    const score = overall?.comprehensive_score ?? 0;
+    const controlScore = pressure?.control_score ?? 0;
+
+    return (
+      <>
+        {meta && (
+          <Card title="📊 射击数据" style={{ marginBottom: 16 }} size="small">
+            <Row gutter={[16, 8]}>
+              {meta.firearm_type && <Col span={8}>枪型: <Tag color="blue">{meta.firearm_type}</Tag></Col>}
+              {meta.shot_distance && <Col span={8}>射击距离: <Tag color="blue">{meta.shot_distance}m</Tag></Col>}
+              {meta.hit_ring && <Col span={8}>着弹环数: <Tag color="red" style={{ fontSize: 16 }}>{meta.hit_ring} 环</Tag></Col>}
+              {meta.hit_coordinates?.horizontal !== undefined && (
+                <Col span={8}>水平坐标: <Tag color="purple">{meta.hit_coordinates.horizontal}</Tag></Col>
+              )}
+              {meta.hit_coordinates?.vertical !== undefined && (
+                <Col span={8}>垂直坐标: <Tag color="purple">{meta.hit_coordinates.vertical}</Tag></Col>
+              )}
+              {meta.deviation_distance && <Col span={8}>偏离靶心: <Tag color="orange">{meta.deviation_distance}mm</Tag></Col>}
+            </Row>
+            {data.confidence_level && (
+              <div style={{ marginTop: 8 }}>
+                <Text type="secondary">分析置信度: </Text>
+                <Progress percent={Math.round(data.confidence_level * 100)} size="small" style={{ width: 120 }} />
+              </div>
+            )}
+          </Card>
+        )}
+
+        {overall && (
+          <Card title="🎯 整体评价" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ marginRight: 24 }}>
+                <Progress
+                  type="circle"
+                  percent={score * 10}
+                  strokeColor={getRatingColor(score)}
+                  format={() => `${score}/10`}
+                  width={80}
+                />
+              </div>
+              <div>
+                <Paragraph strong>{overall.summary}</Paragraph>
+                {overall.strengths && overall.strengths.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <Text strong>✅ 优势点:</Text>
+                    {overall.strengths.map((s: string, i: number) => (
+                      <Tag key={i} color="green" style={{ marginLeft: 4, marginTop: 4 }}>{s}</Tag>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {trajectory && (
+          <Card title="🔍 轨迹分析" style={{ marginBottom: 16 }}>
+            <Collapse defaultActiveKey={['pre_full', 'pre_05s', 'post', 'deviation']}>
+              {trajectory.pre_fire_full && (
+                <Panel header={`🔴 完整瞄准轨迹 - ${trajectory.pre_fire_full.status}`} key="pre_full">
+                  {trajectory.pre_fire_full.advantages?.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <Text strong style={{ color: '#52c41a' }}>优势:</Text>
+                      <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                        {trajectory.pre_fire_full.advantages.map((a: string, i: number) => (
+                          <li key={i}><Text type="success">{a}</Text></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {trajectory.pre_fire_full.issues?.length > 0 ? (
+                    <div>
+                      <Text strong style={{ color: '#ff4d4f' }}>问题:</Text>
+                      <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                        {trajectory.pre_fire_full.issues.map((issue: string, i: number) => (
+                          <li key={i}><Text type="danger">{issue}</Text></li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : <Text type="secondary">无明显问题</Text>}
+                </Panel>
+              )}
+              {trajectory.pre_fire_05s && (
+                <Panel header={`🔵 击发前0.5秒 - ${trajectory.pre_fire_05s.status}`} key="pre_05s">
+                  {trajectory.pre_fire_05s.advantages?.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <Text strong style={{ color: '#52c41a' }}>优势:</Text>
+                      <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                        {trajectory.pre_fire_05s.advantages.map((a: string, i: number) => (
+                          <li key={i}><Text type="success">{a}</Text></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {trajectory.pre_fire_05s.issues?.length > 0 ? (
+                    <div>
+                      <Text strong style={{ color: '#ff4d4f' }}>问题:</Text>
+                      <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                        {trajectory.pre_fire_05s.issues.map((issue: string, i: number) => (
+                          <li key={i}><Text type="danger">{issue}</Text></li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : <Text type="secondary">无明显问题</Text>}
+                </Panel>
+              )}
+              {trajectory.post_fire && (
+                <Panel header={`🟢 击发后复位 - ${trajectory.post_fire.status}`} key="post">
+                  {trajectory.post_fire.advantages?.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <Text strong style={{ color: '#52c41a' }}>优势:</Text>
+                      <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                        {trajectory.post_fire.advantages.map((a: string, i: number) => (
+                          <li key={i}><Text type="success">{a}</Text></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {trajectory.post_fire.issues?.length > 0 ? (
+                    <div>
+                      <Text strong style={{ color: '#ff4d4f' }}>问题:</Text>
+                      <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
+                        {trajectory.post_fire.issues.map((issue: string, i: number) => (
+                          <li key={i}><Text type="danger">{issue}</Text></li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : <Text type="secondary">无明显问题</Text>}
+                </Panel>
+              )}
+              {trajectory.deviation_analysis && (
+                <Panel header="📍 偏差分析" key="deviation">
+                  <div>
+                    <Text strong>偏差方向: </Text>
+                    <Tag>{trajectory.deviation_analysis.direction}</Tag>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <Text strong>根本原因: </Text>
+                    <Text>{trajectory.deviation_analysis.root_cause}</Text>
+                  </div>
+                </Panel>
+              )}
+            </Collapse>
+          </Card>
+        )}
+
+        {pressure && (
+          <Card title="🎛️ 扳机压力分析" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+              <Tag color={getRatingColor(controlScore)} style={{ fontSize: 16, padding: '4px 16px' }}>
+                控制评分: {controlScore}/10
+              </Tag>
+            </div>
+            <Paragraph>
+              <Text strong>曲线特征: </Text>{pressure.curve_features}
+            </Paragraph>
+            {pressure.key_issues?.length > 0 && (
+              <div>
+                <Text strong>关键问题:</Text>
+                <ul style={{ margin: 8, paddingLeft: 20 }}>
+                  {pressure.key_issues.map((issue: string, i: number) => (
+                    <li key={i}><Text type="warning">{issue}</Text></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {suggestions && suggestions.length > 0 && (
+          <Card title="💪 改进建议" style={{ marginBottom: 16 }}>
+            <List
+              dataSource={suggestions}
+              renderItem={(item: any) => (
+                <List.Item style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 16 }}>
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                      <Tag icon={getPriorityIcon(item.priority)} color={getPriorityColor(item.priority)} style={{ fontSize: 14 }}>
+                        {item.priority === 'high' ? '高优先级' : item.priority === 'medium' ? '中优先级' : '低优先级'}
+                      </Tag>
+                      <Text strong style={{ marginLeft: 8 }}>{item.title || item.description}</Text>
+                    </div>
+                    <div style={{ background: '#f9f9f9', padding: 12, borderRadius: 4 }}>
+                      <Text type="secondary">📝 练习方法: {item.practice_method}</Text>
+                    </div>
+                  </div>
+                </List.Item>
+              )}
+            />
+          </Card>
+        )}
+      </>
+    );
   };
 
   return (
@@ -320,7 +496,7 @@ const AIAnalysisPage = () => {
                         <div
                           onClick={() => {
                             setSelectedRecord(item);
-                            setAnalysisData(null);
+                            setAnalysisData(item.analysis || null);
                           }}
                           style={{
                             position: 'relative',
@@ -339,6 +515,20 @@ const AIAnalysisPage = () => {
                           {selectedRecord?.id === item.id && (
                             <CheckCircleFilled style={{ position: 'absolute', top: 4, right: 4, fontSize: 20, color: '#1890ff' }} />
                           )}
+                          {item.analysis && (
+                            <div style={{
+                              position: 'absolute',
+                              bottom: 4,
+                              right: 4,
+                              background: 'rgba(82,196,26,0.9)',
+                              color: 'white',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              fontSize: 12
+                            }}>
+                              <CheckOutlined />
+                            </div>
+                          )}
                         </div>
                       </Col>
                     ))}
@@ -346,7 +536,7 @@ const AIAnalysisPage = () => {
                 </div>
               )}
             </Spin>
-            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button
                 type="primary"
                 icon={<ThunderboltOutlined />}
@@ -355,9 +545,6 @@ const AIAnalysisPage = () => {
                 disabled={!selectedRecord}
               >
                 开始 AI 分析
-              </Button>
-              <Button onClick={handleMockTest} loading={loading}>
-                Mock 测试
               </Button>
               <Upload
                 showUploadList={false}
@@ -381,91 +568,21 @@ const AIAnalysisPage = () => {
             </Card>
           )}
 
-          {debugInfo && (
-            <div style={{ marginBottom: 16, padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              🔍 调试信息: {debugInfo}
-            </div>
-          )}
-
           {analysisData && (
-            <Card title="📋 分析结果">
-              {analysisData.success ? (
-                <>
-                  {analysisData.shot ? (
-                    <Descriptions column={1} size="small" bordered>
-                      <Descriptions.Item label="命中环数">
-                        <Tag color="blue" style={{ fontSize: 16, padding: '2px 12px' }}>{analysisData.shot.ring} 环</Tag>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="弹孔位置">
-                        X: {analysisData.shot.position?.x}, Y: {analysisData.shot.position?.y}
-                      </Descriptions.Item>
-                    </Descriptions>
-                  ) : null}
-
-                  {analysisData.summary && (
-                    <>
-                      <div style={{ marginTop: 16 }}>
-                        <Title level={5}>轨迹分析</Title>
-                        <Row gutter={[8, 8]}>
-                          <Col span={8}>
-                            <Card size="small" style={{ textAlign: 'center', borderColor: '#ff4d4f' }}>
-                              <div style={{ color: '#ff4d4f', fontWeight: 'bold' }}>🔴 稳定性</div>
-                              <Tag color={ratingColorMap[analysisData.summary.stabilityRating] || 'default'} style={{ marginTop: 4 }}>
-                                {analysisData.summary.stabilityRating}
-                              </Tag>
-                              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                                {analysisData.shot?.trajectory?.red?.stability || '未检测'}
-                              </div>
-                            </Card>
-                          </Col>
-                          <Col span={8}>
-                            <Card size="small" style={{ textAlign: 'center', borderColor: '#1890ff' }}>
-                              <div style={{ color: '#1890ff', fontWeight: 'bold' }}>🔵 扳机控制</div>
-                              <Tag color={ratingColorMap[analysisData.summary.triggerControlRating] || 'default'} style={{ marginTop: 4 }}>
-                                {analysisData.summary.triggerControlRating}
-                              </Tag>
-                              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                                {analysisData.shot?.trajectory?.blue?.quality || '未检测'}
-                              </div>
-                            </Card>
-                          </Col>
-                          <Col span={8}>
-                            <Card size="small" style={{ textAlign: 'center', borderColor: '#52c41a' }}>
-                              <div style={{ color: '#52c41a', fontWeight: 'bold' }}>🟢 跟进</div>
-                              <Tag color={ratingColorMap[analysisData.summary.followThroughRating] || 'default'} style={{ marginTop: 4 }}>
-                                {analysisData.summary.followThroughRating}
-                              </Tag>
-                              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                                {analysisData.shot?.trajectory?.green?.stable ? '稳定' : '不稳定'}
-                              </div>
-                            </Card>
-                          </Col>
-                        </Row>
-                      </div>
-
-                      <div style={{ marginTop: 16 }}>
-                        <Title level={5}>⚠️ 主要问题</Title>
-                        <Text>{analysisData.summary?.mainIssue || '无'}</Text>
-                      </div>
-                      <div style={{ marginTop: 12 }}>
-                        <Title level={5}>💡 改进建议</Title>
-                        <Text type="success">{analysisData.summary?.suggestion || '无'}</Text>
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div>
-                  <Tag color="red">分析失败</Tag>
-                  <Text type="secondary">{analysisData.error || '未知错误'}</Text>
-                  {analysisData.rawContent && (
-                    <pre style={{ marginTop: 8, fontSize: 12, background: '#f5f5f5', padding: 8, borderRadius: 4, maxHeight: 200, overflow: 'auto' }}>
-                      {analysisData.rawContent}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </Card>
+            <Spin spinning={loading}>
+              <Card title="📋 分析结果">
+                {analysisData.success === false ? (
+                  <div>
+                    <Tag color="red">分析失败</Tag>
+                    <Text type="secondary">{analysisData.error || '未知错误'}</Text>
+                  </div>
+                ) : (
+                  <>
+                    {renderAnalysis(analysisData)}
+                  </>
+                )}
+              </Card>
+            </Spin>
           )}
         </Col>
       </Row>
@@ -479,6 +596,7 @@ const HistoryPage = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   const fetchRecords = async (pageNum = 1) => {
     setLoading(true);
@@ -502,19 +620,74 @@ const HistoryPage = () => {
   }, []);
 
   const handleDelete = async (record: ShotRecord) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/records/${record.id}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (data.success) {
-        message.success('删除成功');
-        fetchRecords(page);
-      }
-    } catch (error) {
-      console.error('删除失败:', error);
-      message.error('删除失败');
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这条记录吗？',
+      onOk: async () => {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/records/${record.id}`, {
+            method: 'DELETE'
+          });
+          const data = await res.json();
+          if (data.success) {
+            message.success('删除成功');
+            fetchRecords(page);
+          }
+        } catch (error) {
+          console.error('删除失败:', error);
+          message.error('删除失败');
+        }
+      },
+    });
+  };
+
+  const getRingDisplay = (record: ShotRecord) => {
+    if (record.analysis) {
+      const data = record.analysis;
+      const ring = data.metadata?.hit_ring;
+      const score = data.overall_assessment?.comprehensive_score;
+
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+          {ring && <Tag color="blue">🎯 {ring} 环</Tag>}
+          {score && <Tag color="green">⭐ {score}/10</Tag>}
+          {!ring && !score && <Tag color="green">🤖 已分析</Tag>}
+        </div>
+      );
     }
+    return <Tag color="default">⏳ 未分析</Tag>;
+  };
+
+  const getAnalysisSummary = (record: ShotRecord) => {
+    if (!record.analysis) return null;
+    const data = record.analysis;
+
+    if (data.overall_assessment) {
+      return (
+        <div style={{ marginTop: 12, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+          {data.overall_assessment.summary && (
+            <div style={{ marginBottom: 8 }}>
+              <Text strong>📝 总评: </Text>
+              <Text>{data.overall_assessment.summary}</Text>
+            </div>
+          )}
+          {data.overall_assessment.strengths?.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <Text strong>✅ 优势: </Text>
+              {data.overall_assessment.strengths.map((s: string, i: number) => <Tag key={i} color="green" style={{ marginLeft: 4, marginTop: 4 }}>{s}</Tag>)}
+            </div>
+          )}
+          {data.improvement_suggestions?.[0] && (
+            <div>
+              <Text strong>💡 首要建议: </Text>
+              <Text type="success">{data.improvement_suggestions[0].title || data.improvement_suggestions[0].description}</Text>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -533,14 +706,29 @@ const HistoryPage = () => {
               </Button>,
               <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => handleDelete(item)}>
                 删除
-              </Button>
+              </Button>,
             ]}
+            onClick={() => setExpandedRow(expandedRow === item.id ? null : item.id)}
+            style={{ cursor: 'pointer' }}
           >
             <List.Item.Meta
               avatar={<Image src={`${BACKEND_URL}${item.url}`} alt="缩略图" width={80} height={60} style={{ objectFit: 'cover', borderRadius: 4 }} />}
-              title={<Text>{item.filename}</Text>}
-              description={<Text type="secondary">{dayjs(item.uploadedAt).format('YYYY-MM-DD HH:mm:ss')}</Text>}
+              title={
+                <div>
+                  <Text>{item.filename}</Text>
+                  <div style={{ marginTop: 4 }}>{getRingDisplay(item)}</div>
+                </div>
+              }
+              description={
+                <div>
+                  <Text type="secondary">📅 {dayjs(item.uploadedAt).format('YYYY-MM-DD HH:mm:ss')}</Text>
+                  {item.analyzedAt && (
+                    <Text type="secondary" style={{ marginLeft: 12 }}>🤖 {dayjs(item.analyzedAt).format('HH:mm:ss')}</Text>
+                  )}
+                </div>
+              }
             />
+            {expandedRow === item.id && getAnalysisSummary(item)}
           </List.Item>
         )}
       />
