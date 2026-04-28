@@ -319,18 +319,18 @@
             android:layout_height="wrap_content"
             android:background="@drawable/card_bg"
             android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🎯 整体评价"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="#333"
-                android:layout_marginBottom="16dp" />
+                android:layout_marginBottom="12dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -339,9 +339,9 @@
 
                 <!-- 分数圆 -->
                 <FrameLayout
-                    android:layout_width="80dp"
-                    android:layout_height="80dp"
-                    android:layout_marginEnd="24dp">
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginEnd="16dp">
                     <ProgressBar
                         android:id="@+id/progress_score"
                         style="?android:attr/progressBarStyleHorizontal"
@@ -358,7 +358,7 @@
                         android:layout_height="match_parent"
                         android:gravity="center"
                         android:text="0/10"
-                        android:textSize="18sp"
+                        android:textSize="16sp"
                         android:textStyle="bold" />
                 </FrameLayout>
 
@@ -374,9 +374,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="--"
-                        android:textSize="15sp"
+                        android:textSize="14sp"
                         android:textColor="#333"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:lineSpacingExtra="2dp" />
 
                     <!-- 优势点 -->
                     <LinearLayout
@@ -384,14 +385,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="8dp"
                         android:visibility="gone">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="✅ 优势点:"
-                            android:textSize="14sp"
+                            android:textSize="13sp"
                             android:textStyle="bold"
                             android:textColor="#4CAF50" />
 
@@ -399,9 +400,8 @@
                             android:id="@+id/container_strengths"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:layout_marginTop="4dp"
-                            android:gravity="center_vertical" />
+                            android:orientation="vertical"
+                            android:layout_marginTop="4dp" />
                     </LinearLayout>
 
                 </LinearLayout>

@@ -519,7 +519,7 @@ public class TargetAnalysisActivity extends AppCompatActivity {
             containerStrengths.removeAllViews();
             for (int i = 0; i < strengths.length(); i++) {
                 String s = strengths.optString(i);
-                TextView tag = createTagView(s, Color.parseColor("#E8F5E9"), Color.parseColor("#4CAF50"));
+                TextView tag = createStrengthItem(s);
                 containerStrengths.addView(tag);
             }
         } else {
@@ -683,6 +683,21 @@ public class TargetAnalysisActivity extends AppCompatActivity {
             
             containerSuggestions.addView(itemLayout);
         }
+    }
+
+    private TextView createStrengthItem(String text) {
+        TextView tv = new TextView(this);
+        tv.setText("• " + text);
+        tv.setTextSize(13);
+        tv.setTextColor(Color.parseColor("#4CAF50"));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        lp.setMargins(0, dpToPx(2), 0, 0);
+        tv.setLayoutParams(lp);
+        tv.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
+        return tv;
     }
 
     private TextView createTagView(String text, int bgColor, int textColor) {

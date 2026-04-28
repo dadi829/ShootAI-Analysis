@@ -162,44 +162,129 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 在老师的UI上显示分析结果
-    private void showAnalysisResult(JSONObject analysisResult) {
+    private void showAnalysisResult(JSONObject result) {
         try {
-            // 1. 解析弹孔信息
-            JSONObject shot = analysisResult.getJSONObject("shot");
-            int ring = shot.getInt("ring");
-            JSONObject pos = shot.getJSONObject("position");
-            double x = pos.getDouble("x");
-            double y = pos.getDouble("y");
+            // ⚠️ 第一步：检查后端返回的 success 字段
+            if (!result.optBoolean("success", false)) {
+                String errorMsg = result.optString("error", "AI分析失败");
+                showError(errorMsg);
+                return;
+            }
+            
+            // ⚠️ 第二步：获取 analysis 数据
+            JSONObject analysis = result.getJSONObject("analysis");
+            if (analysis == null) {
+                showError("分析结果为空");
+                return;
+            }
+            
+            // 1. 解析射击数据（从metadata中获取）
+            JSONObject metadata = analysis.getJSONObject("metadata");
+            String firearmType = metadata.getString("firearm_type");
+            double shotDistance = metadata.getDouble("shot_distance");
+            double ring = metadata.optDouble("hit_ring", 0);
+            JSONObject hitCoords = metadata.getJSONObject("hit_coordinates");
+            double x = hitCoords.getDouble("horizontal");
+            double y = hitCoords.getDouble("vertical");
+            double deviation = metadata.optDouble("deviation_distance", 0);
+            double confidence = metadata.optDouble("confidence_level", 0.9) * 100;
+            
+            // 2. 解析整体评价
+            JSONObject overall = analysis.getJSONObject("overall_assessment");
+            int score = overall.getInt("comprehensive_score");
+            String summary = overall.getString("summary");
+            JSONArray strengths = overall.optJSONArray("strengths");
+            
+            // 3. 解析轨迹分析
+            JSONObject trajectory = analysis.getJSONObject("trajectory_analysis");
+            JSONObject preFireFull = trajectory.getJSONObject("pre_fire_full");
+            JSONObject preFire05 = trajectory.getJSONObject("pre_fire_05");
+            JSONObject postFire = trajectory.getJSONObject("post_fire");
+            JSONObject deviationAnalysis = trajectory.getJSONObject("deviation_analysis");
+            
+            // 4. 解析扳机压力分析
+            JSONObject trigger = analysis.getJSONObject("trigger_pressure_analysis");
+            int triggerScore = trigger.getInt("control_score");
+            String curveFeatures = trigger.getString("curve_features");
+            
+            // 5. 解析改进建议
+            JSONArray suggestions = analysis.optJSONArray("improvement_suggestions");
 
-            // 2. 解析技术评价
-            JSONObject summary = analysisResult.getJSONObject("summary");
-            String stability = summary.getString("stabilityRating");
-            String triggerControl = summary.getString("triggerControlRating");
-            String followThrough = summary.getString("followThroughRating");
-            String mainIssue = summary.getString("mainIssue");
-            String suggestion = summary.getString("suggestion");
-
-            // 3. 在老师的UI上显示（示例，请根据老师的实际布局修改）
+            // 6. 在老师的UI上显示（示例，请根据老师的实际布局修改）
+            // 射击数据
+            TextView firearmTypeText = findViewById(R.id.firearm_type_text);
+            firearmTypeText.setText("枪型: " + firearmType);
+            
+            TextView distanceText = findViewById(R.id.distance_text);
+            distanceText.setText("射击距离: " + shotDistance + "米");
+            
             TextView ringText = findViewById(R.id.ring_number_text);
-            ringText.setText("环数: " + ring);
+            ringText.setText("着弹环数: " + ring + " 环");
+            
+            TextView xText = findViewById(R.id.x_coordinate_text);
+            xText.setText("水平坐标: " + String.format("%.2f", x));
+            
+            TextView yText = findViewById(R.id.y_coordinate_text);
+            yText.setText("垂直坐标: " + String.format("%.2f", y));
+            
+            TextView deviationText = findViewById(R.id.deviation_text);
+            deviationText.setText("偏离靶心: " + String.format("%.2f", deviation) + "mm");
+            
+            TextView confidenceText = findViewById(R.id.confidence_text);
+            confidenceText.setText("分析置信度: " + (int)confidence + "%");
 
-            TextView positionText = findViewById(R.id.position_text);
-            positionText.setText("位置: (" + x + ", " + y + ")");
+            // 整体评价
+            TextView scoreText = findViewById(R.id.score_text);
+            scoreText.setText(score + "/10");
+            
+            TextView summaryText = findViewById(R.id.summary_text);
+            summaryText.setText(summary);
+            
+            // 优势点
+            if (strengths != null && strengths.length() > 0) {
+                StringBuilder strengthsStr = new StringBuilder();
+                for (int i = 0; i < strengths.length(); i++) {
+                    strengthsStr.append("✅ ").append(strengths.getString(i)).append("\n");
+                }
+                TextView strengthsText = findViewById(R.id.strengths_text);
+                strengthsText.setText(strengthsStr.toString());
+            }
 
-            TextView stabilityText = findViewById(R.id.stability_text);
-            stabilityText.setText("稳定性: " + stability);
+            // 轨迹分析
+            TextView preFireFullText = findViewById(R.id.pre_fire_full_text);
+            preFireFullText.setText("完整瞄准轨迹 - " + preFireFull.getString("status"));
+            
+            TextView preFire05Text = findViewById(R.id.pre_fire_05_text);
+            preFire05Text.setText("击发前0.5秒 - " + preFire05.getString("status"));
+            
+            TextView postFireText = findViewById(R.id.post_fire_text);
+            postFireText.setText("击发后复位 - " + postFire.getString("status"));
+            
+            TextView deviationDirText = findViewById(R.id.deviation_dir_text);
+            deviationDirText.setText("偏差方向: " + deviationAnalysis.getString("direction"));
+            
+            TextView rootCauseText = findViewById(R.id.root_cause_text);
+            rootCauseText.setText("原因分析: " + deviationAnalysis.getString("root_cause"));
 
-            TextView triggerText = findViewById(R.id.trigger_text);
-            triggerText.setText("扳机控制: " + triggerControl);
+            // 扳机分析
+            TextView triggerScoreText = findViewById(R.id.trigger_score_text);
+            triggerScoreText.setText("扳机控制评分: " + triggerScore + "/10");
+            
+            TextView curveText = findViewById(R.id.curve_features_text);
+            curveText.setText("曲线特征: " + curveFeatures);
 
-            TextView followText = findViewById(R.id.follow_text);
-            followText.setText("跟进质量: " + followThrough);
-
-            TextView issueText = findViewById(R.id.issue_text);
-            issueText.setText("主要问题: " + mainIssue);
-
-            TextView suggestionText = findViewById(R.id.suggestion_text);
-            suggestionText.setText("改进建议: " + suggestion);
+            // 改进建议
+            if (suggestions != null && suggestions.length() > 0) {
+                StringBuilder suggestionStr = new StringBuilder();
+                for (int i = 0; i < suggestions.length(); i++) {
+                    JSONObject sug = suggestions.getJSONObject(i);
+                    suggestionStr.append("【").append(sug.getString("priority"))
+                            .append("】").append(sug.getString("title")).append("\n")
+                            .append(sug.getString("practice_method")).append("\n\n");
+                }
+                TextView suggestionText = findViewById(R.id.suggestions_text);
+                suggestionText.setText(suggestionStr.toString());
+            }
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -213,20 +298,34 @@ public class MainActivity extends AppCompatActivity {
 }
 ```
 
-### 5.2 分步调用（更灵活）
+### 5.2 从文件夹自动获取最新图片
 
-如果老师需要更细的控制：
+如果老师的APP将图片保存在某个文件夹中，可以自动获取最新图片：
 
 ```java
-// 步骤1：上传图片
-String recordId = uploadHelper.uploadImage(new File(targetImagePath));
-
-// 步骤2：调用AI分析
-JSONObject analysisResult = uploadHelper.analyzeImage(recordId);
-
-// 步骤3：处理结果
-// ...
+// 指定文件夹路径，自动获取最新图片并分析
+String folderPath = "/sdcard/shoot.test/";
+uploadHelper.uploadLatestFromFolder(folderPath, new TargetImageUploadHelper.UploadCallback() {
+    @Override
+    public void onSuccess(JSONObject analysisResult) {
+        // 分析成功
+        showAnalysisResult(analysisResult);
+    }
+    @Override
+    public void onFailed(String errorMsg) {
+        showError(errorMsg);
+    }
+});
 ```
+
+### 5.3 支持的图片格式
+
+系统支持以下图片格式：
+- `.jpg` / `.jpeg`
+- `.png`
+- `.webp`
+
+建议：使用 `.jpg` 格式，压缩率好且兼容性强。
 
 ---
 
@@ -234,14 +333,25 @@ JSONObject analysisResult = uploadHelper.analyzeImage(recordId);
 
 ### 6.1 服务器地址配置
 
+**⚠️ 重要：端口说明**
+- **后端API端口：3002** - 老师APP需要连接这个端口
+- **前端管理界面：3001** - 用于浏览器查看，APP不需要
+
 **测试阶段（局域网）：**
 ```java
+// 确保手机和电脑在同一WiFi网络
+// 使用电脑的局域网IP地址（根据实际情况修改）
 uploadHelper.setServerUrl("http://192.168.31.175:3002");
 ```
+
+**查看本机IP地址的方法：**
+- Windows：在命令提示符运行 `ipconfig`，查看"IPv4地址"
+- Mac/Linux：在终端运行 `ifconfig` 或 `ip addr`
 
 **生产阶段（公网）：**
 ```java
 uploadHelper.setServerUrl("https://your-domain.com");
+// 注意：生产环境建议使用HTTPS，不需要指定端口
 ```
 
 ### 6.2 图片路径配置
@@ -257,12 +367,13 @@ uploadHelper.setTargetImagePath("/path/to/saved/image.jpg");
 
 ### 7.1 测试前检查清单
 
-- ✅ 后端已部署并运行
-- ✅ 手机和服务器在同一网络（测试阶段）
+- ✅ 后端已部署并运行（端口3002）
+- ✅ 手机和电脑在同一WiFi网络（测试阶段）
 - ✅ 权限已正确添加
 - ✅ `TargetImageUploadHelper.java` 已复制并修改包名
 - ✅ OkHttp 依赖已添加
 - ✅ 网络安全配置已设置（如果需要HTTP）
+- ✅ 服务器地址配置正确（使用电脑的局域网IP，不是localhost）
 
 ### 7.2 测试步骤
 
@@ -320,15 +431,26 @@ implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
 **原因**：
 1. 后端没有运行
-2. 服务器地址配置错误
-3. 豆包API Key未配置
-4. 图片格式不支持
+2. 服务器地址配置错误（使用了localhost而不是局域网IP）
+3. 手机和电脑不在同一网络
+4. 豆包API Key未配置
+5. 图片格式不支持
 
 **解决**：
-1. 确认后端服务正常运行
-2. 检查服务器地址是否正确
-3. 检查后端的 `.env` 文件中的API Key
-4. 使用 .jpg/.png/.jpeg/.webp 格式
+1. 确认后端服务正常运行（检查端口3002）
+2. 检查服务器地址是否使用电脑的**局域网IP**（如192.168.x.x），不是localhost
+3. 确保手机和电脑连接**同一个WiFi**
+4. 检查后端的 `.env` 文件中的API Key
+5. 使用 .jpg/.png/.jpeg/.webp 格式
+
+**快速诊断步骤：**
+```bash
+# 1. 确认后端运行（在浏览器访问）
+http://192.168.31.175:3002/records
+
+# 2. 确认手机和电脑在同一网络
+# 在手机上用浏览器访问上面的地址，应该能看到JSON数据
+```
 
 ---
 

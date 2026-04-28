@@ -312,7 +312,15 @@ app.post('/upload', upload.any(), async (req, res) => {
     saveRecords(records);
     
     console.log(`上传总耗时: ${Date.now() - startTime}ms`);
-    res.json({ success: true, record, analysis });
+    
+    // 检查AI分析结果
+    if (!analysis) {
+      res.json({ success: false, record, error: 'AI分析失败，请稍后重试' });
+    } else if (analysis.error || (analysis.success === false)) {
+      res.json({ success: false, record, error: analysis.error || 'AI分析返回错误' });
+    } else {
+      res.json({ success: true, record, analysis });
+    }
     
   } catch (error) { 
     console.error('Upload failed:', error); 
